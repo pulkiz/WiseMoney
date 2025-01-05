@@ -1,0 +1,142 @@
+import mysql.connector
+
+class ExpenseTracker:
+    def __init__(self, db_config):
+        self.db_config = db_config
+        self.connection = mysql.connector.connect(**db_config)
+        self.cursor = self.connection.cursor()
+        self.group_id = None
+
+    def close_connection(self):
+        self.cursor.close()
+        self.connection.close()
+
+    def create_group(self, group_name):
+        self.cursor.execute("INSERT INTO groups (group_name) VALUES (%s)", (group_name,))
+        self.connection.commit()
+        print(f"Group '{group_name}' created successfully.")
+
+    def list_groups(self):
+        self.cursor.execute("SELECT group_id, group_name FROM groups")
+        groups = self.cursor.fetchall()
+        for group in groups:
+            print(f"{group[0]}. {group[1]}")
+
+    def choose_group(self, group_id):
+        self.group_id = group_id
+        print(f"Group {group_id} selected.")
+
+    def add_person(self, name):
+        if not self.group_id:
+            print("Select a group first.")
+            return
+        self.cursor.execute("INSERT INTO people (name, group_id) VALUES (%s, %s)", (name, self.group_id))
+        self.connection.commit()
+        print(f"Person '{name}' added to group.")
+
+    def list_people(self):
+        if not self.group_id:
+            print("Select a group first.")
+            return
+        self.cursor.execute("SELECT person_id, name FROM people WHERE group_id = %s", (self.group_id,))
+        people = self.cursor.fetchall()
+        for person in people:
+            print(f"{person[0]}. {person[1]}")
+
+    def add_transaction(self, amount, payer_id, participants, note, category):
+        if not self.group_id:
+            print("Select a group first.")
+            return
+        self.cursor.execute(
+            "INSERT INTO transactions (amount, payer_id, note, category, group_id) VALUES (%s, %s, %s, %s, %s)",
+            (amount, payer_id, note, category, self.group_id)
+        )
+        transaction_id = self.cursor.lastrowid
+        for participant in participants:
+            self.cursor.execute("INSERT INTO participants (transaction_id, person_id) VALUES (%s, %s)", (transaction_id, participant))
+        self.connection.commit()
+        print(f"Transaction added successfully.")
+
+    def list_transactions(self):
+        if not self.group_id:
+            print("Select a group first.")
+            return
+        self.cursor.execute("""
+            SELECT t.transaction_id, t.amount, p.name, t.note, t.category 
+            FROM transactions t
+            JOIN people p ON t.payer_id = p.person_id
+            WHERE t.group_id = %s
+        """, (self.group_id,))
+        transactions = self.cursor.fetchall()
+        for transaction in transactions:
+            print(f"{transaction[0]}. Amount: {transaction[1]}, Payer: {transaction[2]}")
+            print(f"   Note: {transaction[3]}, Category: {transaction[4]}")
+            self.cursor.execute("""
+                SELECT pe.name FROM participants pa
+                JOIN people pe ON pa.person_id = pe.person_id
+                WHERE pa.transaction_id = %s
+            """, (transaction[0],))
+            participants = self.cursor.fetchall()
+            participant_names = ", ".join([p[0] for p in participants])
+            print(f"   Participants: {participant_names}")
+
+# Example usage
+def main():
+    db_config = {
+        'user': 'root',
+        'password': 'your_password',
+        'host': 'localhost',
+        'database': 'expense_tracker'
+    }
+    
+    tracker = ExpenseTracker(db_config)
+
+    while True:
+        print("\n1. Create group")
+        print("2. List groups")
+        print("3. Select group")
+        print("4. Add person")
+        print("5. Add transaction")
+        print("6. List transactions")
+        print("7. Exit")
+        choice = input("Choose an option:")
+
+        if choice == "1":
+            group_name = input("Enter group name: ")
+            tracker.create_group(group_name)
+
+        elif choice == "2":
+            tracker.list_groups()
+
+        elif choice == "3":
+            tracker.list_groups()
+            group_id = int(input("Select group by ID: "))
+            tracker.choose_group(group_id)
+
+        elif choice == "4":
+            name = input("Enter person name: ")
+            tracker.add_person(name)
+
+        elif choice == "5":
+            amount = float(input("Enter transaction amount: "))
+            tracker.list_people()
+            payer_id = int(input("Enter payer ID: "))
+            num_participants = int(input("Enter number of participants: "))
+            participants = []
+            for _ in range(num_participants):
+                participant_id = int(input("Enter participant ID: "))
+                participants.append(participant_id)
+            note = input("Enter transaction note: ")
+            print("Categories: eating outside, delivery, grocery, rent, cabs/car rentals, stay, other expenses")
+            category = input("Enter category: ")
+            tracker.add_transaction(amount, payer_id, participants, note, category)
+
+        elif choice == "6":
+            tracker.list_transactions()
+
+        elif choice == "7":
+            tracker.close_connection()
+            break
+
+if __name__ == '__main__':
+    main()
